@@ -1,10 +1,13 @@
 #include <iostream>
 #include <vector>
 #include <thread>
-
+#include <mutex>
+#include <chrono> // Include the chrono library for time measurements
 
 #define LIMIT 10000000
-#define INT_MAX 2147483647 
+#define INT_MAX 2147483647
+
+std::mutex primes_mutex; // Declare a mutex to protect the shared resource
 
 /*
 This function checks if an integer n is prime.
@@ -20,6 +23,7 @@ int get_upperbound();
 int get_num_threads();
 
 int main() {
+    auto start_time = std::chrono::high_resolution_clock::now(); // Record the start time
     std::vector<std::thread> threads;
     int upperbound;
     int num_threads;
@@ -41,6 +45,11 @@ int main() {
         thread.join();
     }
 
+    auto end_time = std::chrono::high_resolution_clock::now(); // Record the end time
+    std::chrono::duration<double> elapsed_time = end_time - start_time;
+
+    std::cout << "Total runtime: " << elapsed_time.count() << " seconds" << std::endl;
+
     return 0;
 }
 
@@ -50,11 +59,16 @@ void prime_checker(int start, int end, int threadID) {
     for (int current_num = start; current_num <= end; current_num++) {
         std::cout << "Thread " << threadID << ": Processing " << current_num << std::endl;
         if (check_prime(current_num)) {
+            // Use a lock_guard to lock the mutex and ensure mutual exclusion
+            std::lock_guard<std::mutex> lock(primes_mutex);
             primes.push_back(current_num);
         }
     }
 
-    std::cout << primes.size() << " primes were found." << std::endl;
+    {
+        std::lock_guard<std::mutex> lock(primes_mutex);
+        std::cout << primes.size() << " primes were found by Thread " << threadID << "." << std::endl;
+    }
 }
 
 int get_upperbound() {
@@ -66,7 +80,7 @@ int get_upperbound() {
 
         std::cin >> upperbound;
 
-        if (std::cin.fail() || upperbound < 0 || upperbound > upperbound) {
+        if (std::cin.fail() || upperbound < 0 || upperbound > INT_MAX) {
             std::cout << "Invalid input. Please enter a valid integer within the specified range." << std::endl;
             std::cin.clear();
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
