@@ -2,7 +2,10 @@
 #include <vector>
 #include <thread>
 #include <mutex>
-#include <chrono> // Include the chrono library for time measurements
+#include <chrono>
+#include <future>
+#include <numeric>
+
 
 #define LIMIT 10000000
 #define INT_MAX 2147483647
@@ -18,13 +21,16 @@ n : int - integer to check
 Returns true if n is prime, and false otherwise.
 */
 bool check_prime(const int& n);
-void prime_checker(int start, int end, int threadID);
+void prime_checker(int start, int end, std::shared_ptr<std::promise<int>> resultPromise);
 int get_upperbound();
 int get_num_threads();
 
 int main() {
     auto start_time = std::chrono::high_resolution_clock::now(); // Record the start time
     std::vector<std::thread> threads;
+    std::vector<std::shared_future<int>> futures;
+    std::vector<std::shared_ptr<std::promise<int>>> promises;
+
     int upperbound;
     int num_threads;
 
@@ -37,8 +43,16 @@ int main() {
         int start = i * numb_per_thread + 1;
         int end = (i == num_threads - 1) ? upperbound : (i + 1) * numb_per_thread;
 
-        // Create a thread and pass the range to process
-        threads.emplace_back(prime_checker, start, end, i + 1);
+        // Create a shared promise and shared future
+        auto promise = std::make_shared<std::promise<int>>();
+        std::shared_future<int> resultFuture = promise->get_future();
+
+        // Use emplace_back to add a thread with the lambda function
+        threads.emplace_back(prime_checker, start, end, promise);
+
+        // Store the shared_future and shared_promise in the vectors
+        futures.emplace_back(resultFuture);
+        promises.emplace_back(std::move(promise));
     }
     // Wait for all threads to finish
     for (auto& thread : threads) {
@@ -48,27 +62,32 @@ int main() {
     auto end_time = std::chrono::high_resolution_clock::now(); // Record the end time
     std::chrono::duration<double> elapsed_time = end_time - start_time;
 
-    std::cout << "Total runtime: " << elapsed_time.count() << " seconds" << std::endl;
+    std::cout << "Total runtime: " << elapsed_time.count() << " ms" << std::endl;
+
+    // Retrieve and accumulate the results
+    int sum_prime = std::accumulate(futures.begin(), futures.end(), 0,
+        [](int sum, const std::shared_future<int>& future) {
+            return sum + future.get();
+        });
+    std::cout << "Total prime numbers: " << sum_prime << std::endl;
+
 
     return 0;
 }
 
-void prime_checker(int start, int end, int threadID) {
-    std::vector<int> primes;
+void prime_checker(int start, int end, std::shared_ptr<std::promise<int>> resultPromise) {
+    int count = 0;
 
     for (int current_num = start; current_num <= end; current_num++) {
-        std::cout << "Thread " << threadID << ": Processing " << current_num << std::endl;
+//        std::cout << "Thread " << threadID << ": Processing " << current_num << std::endl;
         if (check_prime(current_num)) {
             // Use a lock_guard to lock the mutex and ensure mutual exclusion
             std::lock_guard<std::mutex> lock(primes_mutex);
-            primes.push_back(current_num);
+            ++count;
+
         }
     }
-
-    {
-        std::lock_guard<std::mutex> lock(primes_mutex);
-        std::cout << primes.size() << " primes were found by Thread " << threadID << "." << std::endl;
-    }
+    resultPromise->set_value(count);
 }
 
 int get_upperbound() {
@@ -96,7 +115,7 @@ int get_upperbound() {
 int get_num_threads() {
     int key = 0;
 
-    int maxThreads = std::thread::hardware_concurrency();
+    int maxThreads = 1024;
     int num_threads;
 
     while (!key) {
