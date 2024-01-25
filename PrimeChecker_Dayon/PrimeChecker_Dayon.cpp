@@ -69,7 +69,7 @@ int main() {
         [](int sum, const std::shared_future<int>& future) {
             return sum + future.get();
         });
-    std::cout << "Total prime numbers: " << sum_prime << std::endl;
+    std::cout << "Total prime numbers: " << sum_prime-1 << std::endl;
 
 
     return 0;
